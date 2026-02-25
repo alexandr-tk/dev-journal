@@ -1,7 +1,7 @@
 ---
 project: Blender
 tags: [c++, rna, python-api, open-source, issue-154070]
-status: PR Approved
+status: PR Merged
 ---
 
 # Exposing Socket Visibility to the Python API (PR #154686)
