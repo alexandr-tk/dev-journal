@@ -1,7 +1,7 @@
 ---
 project: Blender
 tags: [c++, rna, python-api, open-source]
-status: PR Submitted
+status: PR Merged
 ---
 
 # Optimizing is_input_used and is_input_visible Functions
@@ -10,31 +10,32 @@ status: PR Submitted
 
 ## 1. Workflow
 
-- **Task:** Optimize functions created for PR #154686 to access the socket from the runtime in O(1) instead of O(n)
+- **Task:** Optimize the functions created in PR #154686 to access sockets from the runtime in O(1) time instead of O(n).
 - **Original PR Link:** [PR #154686](https://projects.blender.org/blender/blender/pulls/154686)
-
 - **Reasoning:**
-    - Implement the suggesstion made by one of the reviewers
-    - Achieve better function perfomance.
+    - Implement a suggestion made by one of the core reviewers.
+    - Achieve significantly better function performance.
 
 ## 2. Context
 
-In one of the reviews under my PR for exposing input visibility function to Python API I got a suggestion to access the sockets in O(1) instead of O(n) how it is currently done in my implementation. This is possible as all the input sockets are already stored in the bNodeTreeInterfaceRuntime as a VectorSet which is a custom data structure which allows lookups in constant time. However, a new function should be introduced for that in the bNodeTreeInterfaceRuntime creating the need for a separate patch.
+In one of the reviews on my PR (which exposed the input visibility function to the Python API), a reviewer suggested accessing the sockets in O(1) time rather than O(n), as it was currently implemented. This is possible because all the input sockets are already stored in the `bNodeTreeInterfaceRuntime` as a `VectorSet`, a custom data structure that allows lookups in constant time. However, a new function needed to be introduced in `bNodeTreeInterfaceRuntime` to handle this, creating the need for a separate patch.
 
 ## 3. Plan for Solving
 
-In order to be able to optimize the function, I must intoduce the function lookup_by_identifier in the bNodeTreeInterfaceRuntime. As I am already using this class(?) in my orginal functions I will just need to replace the iteration through the identifiers to this newly created lookup function therefore creating this significant perfomance improvement for the function. Likely similar function already exists in the bNodeRuntime which I can use as a reference. Therefore my plan is:
+To optimize the function, I need to introduce a `lookup_by_identifier` function in the `bNodeTreeInterfaceRuntime`. Since I am already using this class in my original functions, I will just need to replace the O(n) iteration through the identifiers with this newly created lookup function, instantly getting a significant performance improvement.
 
-1. Research how the input_by_identifier function works in bNodeRuntime.
-2. Create a similar function in the bNodeTreeInterfaceRuntime.
-3. Replace looping in the original functions with the new lookup function.
-4. Run the same tests to make sure is_input_visible and is_input_used work correctly.
+A similar function likely already exists in `bNodeRuntime` that I can use as a reference. Therefore, my plan is:
+
+1. Research how the `input_by_identifier` function works in `bNodeRuntime`.
+2. Create a similar function in `bNodeTreeInterfaceRuntime`.
+3. Replace the loops in my original functions with the new lookup function.
+4. Run the same tests to ensure `is_input_visible` and `is_input_used` still work correctly.
 
 ## 4. Solving the Issue
 
-### Reference function
+### Reference Function
 
-As I mentioned I will start by looking at the lookup implementation in the bNodeRuntime.
+As mentioned, I will start by looking at the lookup implementation in `bNodeRuntime`.
 
 ```cpp
 inline const bNodeSocket *bNode::input_by_identifier(StringRef identifier) const
@@ -42,48 +43,50 @@ inline const bNodeSocket *bNode::input_by_identifier(StringRef identifier) const
   BLI_assert(bke::node_tree_runtime::topology_cache_is_available(*this));
   return this->runtime->inputs_by_identifier.lookup_default_as(identifier, nullptr);
 }
+
 ```
 
-To breakdown in details what it does:
+To break down what this does in detail:
 
 ```cpp
 inline const bNodeSocket *bNode::input_by_identifier(StringRef identifier) const
 ```
 
-Inline function tells the compiler instead of jumping to the place where the function is stored, just copy the code in the file where it was called. It is very useful for tiny frequently called functions. const makes sure that the return is read-only. The functions returns the pointer to the bNodeSocket, and belongs to the bNode class, not the runtime where it is defined. The last const specifies that the function itself will not change the node.
+The `inline` keyword tells the compiler that instead of jumping to the place where the function is stored in memory, it should just copy the code directly into the file where it is called. This is very useful for tiny, frequently called functions.
+The first `const` ensures the return is read-only. The function returns a pointer to a `bNodeSocket` and belongs to the `bNode` class (not the runtime where it is defined). The final `const` specifies that the function itself will not modify the node.
 
 ```cpp
 BLI_assert(bke::node_tree_runtime::topology_cache_is_available(*this));
 ```
 
-This line is used for development only. If it returns false in the debug mode Blender will crash pointing to this node. In real usage compiler will just delete this line. In this case it checks if the cache is available for the function.
+This line is used for development purposes. If it evaluates to false in debug mode, Blender will crash and point directly to this node. In a real release build, the compiler will just strip this line out. Here, it checks if the cache is available before the function runs.
 
 ```cpp
 return this->runtime->inputs_by_identifier.lookup_default_as(identifier, nullptr);
 ```
 
-This is the most interesting line. It access the runtime of the node which called the function and then uses a hashmap variable (at which we will look in just a second), and calles a lookup_default_as function which is Blender's built-in method working in O(1). It will return the pointer to the identifier in case of the success, and nullptr otherwise.
+This is the most interesting line. It accesses the runtime of the node that called the function, looks at a hash map variable, and calls `lookup_default_as()`—one of Blender's built-in methods that operates in O(1) time. It will return the pointer to the identifier upon success, and a `nullptr` otherwise.
 
 ### Lookup Map Declaration
 
-Now we need to look at the lookup Map which was used in the function above and which we'll need to recreate. In the bNodeRuntime it is declaerd as:
+Next, we need to look at the lookup Map used in the function above so we can recreate it. In `bNodeRuntime`, it is declared as:
 
 ```cpp
 Map<StringRefNull, bNodeSocket *> inputs_by_identifier;
 ```
 
-We can immediatly recreate similar variable in the bNodeTreeInterface. The only change that it will store pointers to the bNodeTreeInterfaceSockets:
+We can immediately recreate a similar variable in `bNodeTreeInterface`. The only difference is that ours will store pointers to `bNodeTreeInterfaceSocket`:
 
 ```cpp
 /** Only valid when the item cache is built. */
 Map<StringRefNull, bNodeTreeInterfaceSocket *> inputs_by_identifier;
 ```
 
-So now we already have runtime input pointers, we have a Map structure which will give quick lookup, now we need to fill out the items in this structure.
+So, we now have runtime input pointers and a Map structure for quick lookups. Next, we need to populate this structure.
 
-### Fill the Map
+### Filling the Map
 
-The map for the bNodeRuntime is filled in the different file - node_runtime.cc and looks like that:
+The map for `bNodeRuntime` is populated in a different file (`node_runtime.cc`) and looks like this:
 
 ```cpp
 static void update_sockets_by_identifier(const bNodeTree &ntree)
@@ -95,8 +98,7 @@ static void update_sockets_by_identifier(const bNodeTree &ntree)
       node->runtime->inputs_by_identifier.clear();
       node->runtime->outputs_by_identifier.clear();
       for (bNodeSocket *socket : node->runtime->inputs) {
-
-        //The line I will use to fill my map
+        // The line I will use to fill my map
         node->runtime->inputs_by_identifier.add_new(socket->identifier, socket);
       }
       for (bNodeSocket *socket : node->runtime->outputs) {
@@ -107,7 +109,7 @@ static void update_sockets_by_identifier(const bNodeTree &ntree)
 }
 ```
 
-This function is located inside complicated ensure topology cache of the bNode. Fortunately cache ensure for the bNodeTreeInterface is less filled:
+This function is located inside a rather complicated "ensure topology cache" block for `bNode`. Fortunately, ensuring the cache for `bNodeTreeInterface` is much simpler:
 
 ```cpp
 void bNodeTreeInterface::ensure_items_cache() const
@@ -120,9 +122,7 @@ void bNodeTreeInterface::ensure_items_cache() const
     runtime.inputs_.clear();
     runtime.outputs_.clear();
 
-    /* Items in the cache are mutable pointers, but node tree update considers ID data to be
-     * immutable when caching. DNA ListBaseT pointers can be mutable even if their container is
-     * const, but the items returned by #foreach_item inherit qualifiers from the container. */
+    /* Items in the cache are mutable pointers... */
     bNodeTreeInterface &mutable_self = const_cast<bNodeTreeInterface &>(*this);
 
     mutable_self.foreach_item([&](bNodeTreeInterfaceItem &item) {
@@ -141,14 +141,14 @@ void bNodeTreeInterface::ensure_items_cache() const
 }
 ```
 
-We also do not need multicore processing that is used for the nodes as scale of the sockets is much smaller and CPU can easily handle them without multicore processing, therefore I can just fill my map inside this function:
+We also don't need the multi-threading used for `bNode` because the scale of interface sockets is much smaller, and the CPU can handle them sequentially. Therefore, I can just clear and fill my map directly inside this function:
 
 ```cpp
     runtime.items_.clear();
     runtime.inputs_.clear();
     runtime.outputs_.clear();
 
-    //Clearing current state of the maps before updating it.
+    // Clearing the current state of the maps before updating
     runtime.inputs_by_identifier.clear();
     runtime.outputs_by_identifier.clear();
 ```
@@ -156,15 +156,15 @@ We also do not need multicore processing that is used for the nodes as scale of 
 ```cpp
     if (socket->flag & NODE_INTERFACE_SOCKET_INPUT) {
         runtime.inputs_.add_new(socket);
-        runtime.inputs_by_identifier.add_new(socket->identifier, socket); //Filling inputs
+        runtime.inputs_by_identifier.add_new(socket->identifier, socket); // Filling inputs
     }
     if (socket->flag & NODE_INTERFACE_SOCKET_OUTPUT) {
         runtime.outputs_.add_new(socket);
-        runtime.outputs_by_identifier.add_new(socket->identifier, socket); //Filling outputs
+        runtime.outputs_by_identifier.add_new(socket->identifier, socket); // Filling outputs
     }
 ```
 
-To be able to call the functions I am going to create in files, I need to define them in the DNA_node_tree_interface_types.hh first:
+To call the functions across files, I first need to define them in `DNA_node_tree_interface_types.hh`. This ensures Blender's saving and loading processes work properly:
 
 ```cpp
   /** Get an input socket by its identifier string. */
@@ -174,23 +174,19 @@ To be able to call the functions I am going to create in files, I need to define
   const bNodeTreeInterfaceSocket *output_by_identifier(StringRef identifier) const;
 ```
 
-It is needed so blender saving and loading process works properly.
-
-Now I can define my new functions in the BKE_node_tree_interface.hh:
+Now I can define my new functions in `BKE_node_tree_interface.hh`:
 
 ```cpp
-
 inline const bNodeTreeInterfaceSocket *bNodeTreeInterface::input_by_identifier(
     StringRef identifier) const
 {
-  ensure_items_cache(); //Make sure our map is filled before calling
+  ensure_items_cache(); // Make sure our map is filled before calling
   return this->runtime->inputs_by_identifier.lookup_default_as(identifier, nullptr);
 }
-
-//Same for the output lookup...
+// Same for the output lookup...
 ```
 
-Now I will also add the wrapper functions to the BKE_node_runtime.hh so I can access the function without complex nesting, straight from ntree:
+I will also add wrapper functions to `BKE_node_runtime.hh` so I can access the method without complex nesting, straight from `ntree`:
 
 ```cpp
 inline const bNodeTreeInterfaceSocket *bNodeTree::interface_input_by_identifier(
@@ -206,16 +202,17 @@ inline const bNodeTreeInterfaceSocket *bNodeTree::interface_output_by_identifier
 }
 ```
 
-I also need to define these wrappers in the DNA of the node_types:
+And define these wrappers in the DNA of the node types:
 
 ```cpp
   const bNodeTreeInterfaceSocket *interface_input_by_identifier(StringRef identifier) const;
   const bNodeTreeInterfaceSocket *interface_output_by_identifier(StringRef identifier) const;
 ```
 
-Now I can easily update the original loop in the rna_modifier.cc:
+With everything wired up, I can easily update the original O(n) loop in `rna_modifier.cc`:
 
 ```cpp
+  // Old code
   for (bNodeTreeInterfaceSocket *socket : ntree->interface_inputs()) {
     if (STREQ(socket->identifier, identifier)) {
       return input_usages[ntree->interface_input_index(*socket)].is_used;
@@ -223,17 +220,17 @@ Now I can easily update the original loop in the rna_modifier.cc:
   }
 ```
 
-with our new function:
+And replace it with our new O(1) function:
 
 ```cpp
-  //Without wrappers I would have to call it like ntree->tree_interface.input_by_identifier(...)
+  // New code (The wrapper saves us from calling ntree->tree_interface.input_by_identifier...)
   const bNodeTreeInterfaceSocket *socket = ntree->interface_input_by_identifier(identifier);
   if (socket != nullptr) {
     return input_usages[ntree->interface_input_index(*socket)].is_visible;
   }
 ```
 
-Inline functions for the BKE_node_tree_interface.hh were not the best decision so instead I defined similar functions in the node_tree_interface.cc:
+_Note: Inline functions for `BKE_node_tree_interface.hh` were ultimately not the best approach, so I instead defined them in `node_tree_interface.cc`:_
 
 ```cpp
 const bNodeTreeInterfaceSocket *bNodeTreeInterface::input_by_identifier(StringRef identifier) const
@@ -252,20 +249,20 @@ const bNodeTreeInterfaceSocket *bNodeTreeInterface::output_by_identifier(
 
 ## 5. Testing
 
-For the testing I successfully compiled the blender and ran the python script to get the is_input_used and is_input_visible. Code sucessfully compiled so I submitted a PR.
+For testing, I successfully compiled Blender and ran a Python script to retrieve `is_input_used` and `is_input_visible`. The code executed correctly, so I submitted the PR.
 
-## 6. Review
+## 6. Review & Refactoring
 
-Feedback from Hans Goudey was to use original VectorSet variables can be changed to a structure CustomIDVectorSet which turns out already include hash table and therefore there is no need to create and fill new data structure. So I am removing the changes I made in the node_tree_interface.cc and will use already defined variables.
+Feedback from Hans Goudey suggested that instead of adding new Maps, the original `VectorSet` variables could be upgraded to a `CustomIDVectorSet`. This structure already includes a hash table, eliminating the need to create and populate a redundant data structure.
 
-Now I should change the variables to a new datatype:
+I discarded the Map changes in `node_tree_interface.cc` and updated the existing variables to the new data type:
 
 ```cpp
 CustomIDVectorSet<bNodeTreeInterfaceSocket *, SocketIdentifierGetter> inputs_;
 CustomIDVectorSet<bNodeTreeInterfaceSocket *, SocketIdentifierGetter> outputs_;
 ```
 
-The first value we are giving to it remains the same as in the VectorSet. The second value is a struct that tells blender which part of the socket we want to use as a key in our hash table. Now I need to define this custom struct:
+The first argument remains the same as in a standard `VectorSet`. The second argument is a struct that tells Blender which part of the socket we want to use as the hash table key. I defined this custom struct as follows:
 
 ```cpp
   struct SocketIdentifierGetter {
@@ -276,24 +273,14 @@ The first value we are giving to it remains the same as in the VectorSet. The se
   };
 ```
 
-Struct functions almost in the same way as a class, but unlike class keeps everything inside public by default. It is usually used to group things together, like x,y,and z for struct Vector 3D. When we give a struct a specific function that allows it to act like a machine, it is called a "Functor" (a function-object).
+A `struct` functions similarly to a class but keeps everything `public` by default. When we give a struct an `operator()` function, it allows the struct to act like a function itself (this is called a "Functor"). Because we need the identifier to act as our key, the functor simply returns it.
+
+With these changes, we can retrieve the index of our socket by calling `index_of_as(identifier)`. Since `VectorSet`s are essentially half hash-table and half array, getting the index solves our lookup problem.
+
+Using this built-in method, I changed the getters and wrappers to return an `int` instead of a pointer:
 
 ```cpp
-StringRef operator()(const bNodeTreeInterfaceSocket *socket) const
-```
-
-With this line we are telling compiler when the struct is run it will return the value of StringRef. By using operator() function we can pass the values into the stuct directly and run it without calling the function name. And in the brackets we specify what we are giving this struct as an input. We need to use our identifier as a key therefore we return exactly it:
-
-```cpp
-return socket->identifier;
-```
-
-After this changes were made we can get the index of our socket by callling index_of_as(identifier). This index will give us an access to our socket because VectorSets are half hash tables half arrays. We get the index for the second.
-
-Using this built in blender function we can change our getter and wrapper funtions. Notice that now we return the int type as we access the index.
-
-```cpp
-//Getters
+// Getters
 int bNodeTreeInterface::input_index_by_identifier(StringRef identifier) const
 {
   this->ensure_items_cache();
@@ -308,21 +295,19 @@ int bNodeTreeInterface::output_index_by_identifier(StringRef identifier) const
 ```
 
 ```cpp
-//Wrappers
-inline const int bNodeTree::interface_input_index_by_identifier(StringRef identifier) const
+// Wrappers
+inline int bNodeTree::interface_input_index_by_identifier(StringRef identifier) const
 {
   return this->tree_interface.input_index_by_identifier(identifier);
 }
 
-inline const int bNodeTree::interface_output_index_by_identifier(StringRef identifier) const
+inline int bNodeTree::interface_output_index_by_identifier(StringRef identifier) const
 {
   return this->tree_interface.output_index_by_identifier(identifier);
 }
 ```
 
-I also updated the descrirptions in the DNA to correspond the new definitions.
-
-Now I will replace the functions in the rna_modifier.cc to the newly made ones:
+I also updated the descriptions in the DNA files to reflect these new integer returns, and updated `rna_modifier.cc` to use the new logic:
 
 ```cpp
   int index = ntree->interface_input_index_by_identifier(identifier);
@@ -331,24 +316,41 @@ Now I will replace the functions in the rna_modifier.cc to the newly made ones:
   }
 ```
 
-I also need to make existing functions which used the vectorSet to use our new version now.
-
-Replacing this:
+During review, I added a safety check to ensure missing identifiers properly return `-1`, and later, was asked to optimize this to avoid double lookups by using `index_of_try_as`:
 
 ```cpp
-inline int bNodeTree::interface_output_index(const bNodeTreeInterfaceSocket &io_socket) const
+int bNodeTreeInterface::input_index_by_identifier(const StringRef identifier) const
 {
-  BLI_assert(this->tree_interface.items_cache_is_available());
-  return this->tree_interface.runtime->inputs_.index_of_as(io_socket.identifier);
+  BLI_assert(this->items_cache_is_available());
+
+  std::optional<int> index_opt = this->runtime->inputs_.index_of_try_as(identifier);
+
+  if (index_opt.has_value()) {
+    return index_opt.value();
+  }
+  return -1;
 }
 ```
 
-With this:
+Additionally, Jacques Lucke requested that we pass `identifier` as a `const StringRef` to ensure the string cannot be modified. I initially tried updating the DNA functions as well, but `StringRef` is a trivially copyable type, so enforcing `const` there was unnecessary.
+
+Finally, we realized that the entire `index_opt` block:
 
 ```cpp
-inline int bNodeTree::interface_output_index(const bNodeTreeInterfaceSocket &io_socket) const
+  if (index_opt.has_value()) {
+    return index_opt.value();
+  }
+  return -1;
+```
+
+Could be further simplified by exluding intermediate variable. This condenses the final implementation down to a single, elegant return (if no socket is found it will automatically return `-1`):
+
+```cpp
+int bNodeTreeInterface::output_index_by_identifier(const StringRef identifier) const
 {
-  BLI_assert(this->tree_interface.items_cache_is_available());
-  return this->tree_interface.runtime->outputs_.index_of_as(io_socket.identifier);
+  BLI_assert(this->items_cache_is_available());
+  return this->runtime->outputs_.index_of_try_as(identifier);
 }
 ```
+
+After implementing these changes, I updated the PR description and it was approved and merged.
