@@ -11,10 +11,10 @@ and [175-hour](https://docs.google.com/document/d/18j9eI6JBnmUSVOIag35sbC-QoJMka
 
 ## 1. Workflow
 
-- **Task:** Conduct a comprehensive technical audit of Blender's node systems, define project scope, and architect a formal Google Summer of Code (GSoC) proposal to bring Geometry Nodes parity to the Real-Time GPU Compositor.
-- **Reasoning:** - Identify a high-impact, architecturally sound project that solves a core limitation in Blender's compositing pipeline.
+- **Task:** Review Blender's node systems, define project scope, and write a Google Summer of Code (GSoC) proposal to bring Geometry Nodes parity to the Real-Time GPU Compositor.
+- **Reasoning:** - Define a project to add native integer and boolean types to Blender's compositing pipeline.
     - Continuously iterate on technical scope through direct communication with core module owners to align with Blender's active `main` branch development.
-    - Secure a rigorous 175-hour project timeline that balances backend systems infrastructure with tangible UI deliverables.
+    - Fit native type support and user-facing nodes into a 175-hour project timeline.
 
 ## 2. Context
 
@@ -50,7 +50,7 @@ This required a strategic pivot. I split the planning into two paths: a baseline
 
 ### Draft 5 (Final Submission): The 175-Hour Architecture
 
-The final submission successfully integrated all developer feedback. It removed redundant upstream nodes, formalized the cross-module native type architecture, and solidified a mathematically rigorous 175-hour timeline anchored by the advanced matrix decomposition tasks.
+The final submission incorporated developer feedback, removed nodes already implemented upstream, and organized the 175-hour scope around native types and matrix decomposition.
 
 ## 5. Prototyping and Validation
 
@@ -58,11 +58,11 @@ To validate the technical feasibility of the proposal and familiarize myself wit
 
 ## 6. Final Architecture & Next Steps
 
-The finalized software engineering proposal establishes a complete pipeline for updating the Compositor ecosystem. The deliverables are structured sequentially across four phases:
+The submitted proposal groups the planned work into four phases:
 
 1.  **Native GPU Type Architecture:** Implementing `int[234]` and `boolean` buffers directly in the Compositor context and updating the implicit GLSL type-conversion pipeline.
 2.  **Core Math & Logic Porting:** Porting standard primitives (Integer Math, Boolean Math, Bit Math, Compare) to strictly utilize the new data types.
 3.  **Input & Procedural Utilities:** Integrating input interfaces (Input Integer, Input Boolean, Menu Switch) and generation nodes (Random Value, Hash Value).
-4.  **Matrix Decomposition:** Developing the GLSL SVD solver and the Separate/Combine Transform suite alongside comprehensive regression testing.
+4.  **Matrix Decomposition:** Developing the GLSL SVD solver and the Separate/Combine Transform suite alongside regression tests for those nodes.
 
-The proposal has been officially submitted, and the project is currently awaiting final GSoC selection results.
+At the time of this entry, the proposal had been submitted and was awaiting final GSoC selection results.

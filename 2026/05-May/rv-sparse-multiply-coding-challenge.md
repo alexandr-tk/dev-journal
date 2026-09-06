@@ -28,7 +28,7 @@ In linear algebra, a sparse matrix is a matrix in which most of the elements are
 
 ### The Core Constraint
 
-The absolute most critical rule of this challenge: **Zero dynamic memory allocation.** I was strictly forbidden from using `malloc`, `calloc`, or any heap-based memory. All buffers were pre-allocated by the caller, meaning I had to build everything perfectly on the stack using raw pointers and exact array indexing.
+The main constraint on `sparse_multiply` was **zero dynamic memory allocation inside the function**: it could not call `malloc` or `calloc`. It writes through pointers to caller-provided buffers, which the test harness allocates on the heap. Using those buffers does not make them stack allocations.
 
 ### Vocabulary
 
@@ -64,7 +64,7 @@ When I found a non-zero, I tried to increment my total count using `*out_nnz++`.
 
 My logic for updating the `row_ptrs` array was initially trapped inside my `if` statement that checked for non-zeros.
 
-**The Fix:** The CSR format requires that `row_ptrs` records the starting position of _every single row_, even if the row is entirely zeros. Because my logic only triggered when it found a number, completely empty rows were skipped, breaking the compression. I fixed this by moving the assignment `row_ptrs[i] = *out_nnz;` to the very top of the outer loop, right before scanning the columns. This elegantly handles empty rows by giving them identical start and stop boundaries, causing the multiplication phase to safely skip them.
+**The Fix:** The CSR format requires that `row_ptrs` records the starting position of _every single row_, even if the row is entirely zeros. Because my logic only triggered when it found a number, completely empty rows were skipped, breaking the compression. I fixed this by moving the assignment `row_ptrs[i] = *out_nnz;` to the very top of the outer loop, right before scanning the columns. This handles empty rows by giving them identical start and stop boundaries, causing the multiplication phase to safely skip them.
 
 ### Mistake 4: The Multiplication Boundary
 
@@ -75,7 +75,7 @@ For the second phase, I set my inner loop boundaries like this:
 
 ## 5. Polishing & Linux Kernel Style
 
-After getting the logic completely watertight using raw pointer arithmetic (like `*(values + *out_nnz)`), I learned that systems programming and Linux Kernel Coding Style universally prefer the array bracket shortcut for readability.
+After fixing the indexing errors in the pointer-arithmetic version (such as `*(values + *out_nnz)`), I switched to array subscripts to make the buffer accesses easier to read.
 
 I refactored the code to use clean `array[index]` syntax, padded my binary operators, and dropped the function's opening brace to a new line.
 
@@ -98,7 +98,7 @@ Here is the final, polished core logic for the computation phase:
 I ran my implementation against the provided test harness. The harness generates random matrices of varying sparsity (densities from 5% to 40%), executes the standard dense matrix multiplication to get a reference array, and compares it against my CSR implementation using a mixed absolute/relative tolerance `1e-7`.
 
 ```bash
-gcc -lm -o run challenge.c
+gcc challenge.c -lm -o run
 ./run
 ```
 
@@ -106,6 +106,6 @@ gcc -lm -o run challenge.c
 
 ## 7. Reflection
 
-This was an incredibly cool challenge. The beauty of the CSR format is that the dot product for a row becomes an incredibly tight, cache-friendly loop. Instead of doing 1,000 multiplications for a 1,000-column row, if there are only 3 non-zeros, the CPU only does 3 operations.
+This was an incredibly cool challenge. The beauty of the CSR format is that the dot product for a row becomes an incredibly tight, cache-friendly loop. For a 1,000-column row with 3 non-zeros, the dot-product loop performs 3 multiplications instead of 1,000, along with additions, loads, and loop bookkeeping. Building CSR still scans all 1,000 entries.
 
 Building this from scratch gave me a huge appreciation for what libraries like OpenBLAS do under the hood, and makes me incredibly excited for the potential to apply this to RISC-V hardware acceleration.

@@ -20,7 +20,7 @@ status: PR Submitted - Awaiting Review
 
 As a daily Linux user, I rely heavily on `rquickshare` to transfer files to my Android device. Because the campus Wi-Fi blocks the necessary discovery protocols, I decided to build out the offline Bluetooth Low Energy (BLE) and Wi-Fi Direct pathways myself.
 
-It is worth noting that this is my first major foray into Rust. Naturally, my initial assumptions about memory management and stream handling required some adjustment. Before I could begin working with the Linux Bluetooth daemon (`bluer`), I realized the application's foundation was too rigidly tied to Wi-Fi. A major refactoring phase was required first to make the network stack transport-agnostic.
+This is my first major Rust project. Naturally, my initial assumptions about memory management and stream handling required some adjustment. Before I could begin working with the Linux Bluetooth daemon (`bluer`), I realized the application's foundation was too rigidly tied to Wi-Fi. A major refactoring phase was required first to make the network stack transport-agnostic.
 
 ## 3. Plan for Solving
 
@@ -51,13 +51,13 @@ The logic was straightforward: instantiate a dummy Quick Share event, encode it 
 Next, I needed to untangle the core read/write operations from their TCP-specific methods and isolate them into standalone, generic functions. This phase exposed me to several core Rust paradigms:
 
 **Error 1: Sized Traits at Compile Time**
-My initial approach was to pass the trait directly (e.g., `stream: AsyncWrite`). The compiler flagged that the size of `dyn AsyncWrite` cannot be known at compile time. I learned that dynamic dispatch requires boxing (`Box<dyn AsyncWrite>`), but I opted for static dispatch via generics to avoid unnecessary heap allocation overhead.
+My initial approach was to pass the trait directly (e.g., `stream: AsyncWrite`). The compiler flagged that the size of `dyn AsyncWrite` cannot be known at compile time. [Trait objects](https://doc.rust-lang.org/reference/types/trait-object.html) need indirection, such as a reference or `Box<dyn AsyncWrite>`; boxing is not the only option. I chose static dispatch through generics.
 
 **Error 2: Move Semantics and Borrowing**
 When attempting to pass the generic stream by value, I encountered move semantics errors. The stream was being consumed by the `write_frame` function, preventing the caller from using it to read the subsequent response. I corrected this by adjusting the signature to accept a mutable reference (`&mut W`).
 
 **Error 3: The `Unpin` Requirement**
-With the references corrected, the async runtime enforced the `Unpin` trait bound. Because asynchronous streams hold state across `await` points, Rust requires a guarantee that the underlying memory will not be moved. Adding `Unpin` resolved the compiler constraints.
+With the references corrected, the async runtime enforced the `Unpin` trait bound. The async read/write helpers used here require `Unpin` when borrowing the stream through `&mut R` or `&mut W`. [`Unpin`](https://doc.rust-lang.org/std/marker/trait.Unpin.html) means the type does not rely on remaining pinned in memory; it is not a guarantee that the value will stay at one address. Adding the bound resolved the compiler constraints.
 
 The final isolated logic successfully abstracted the stream:
 
@@ -73,7 +73,7 @@ pub async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> Result<Vec<u8>>
 
 ### Step 5: Creating the Generic Wrapper
 
-With the functions genericized, I needed to replace the hardcoded `TcpStream` instances throughout the codebase. I created a generic wrapper trait to encapsulate any viable stream:
+With the functions genericized, I needed to replace the hardcoded `TcpStream` instances throughout the codebase. I created a generic wrapper struct for streams satisfying the listed trait bounds:
 
 ```rust
 pub struct Connection<S>
@@ -90,7 +90,7 @@ This ensured that whenever the application initializes a connection, it wraps th
 
 To confirm the newly abstracted architecture functioned correctly, I wrote a unit test specifically for the stream wrapper. Instead of opening a real network socket, I simulated a read/write cycle using an in-memory byte buffer.
 
-The tests passed successfully, confirming that the `write_frame` and `read_frame` abstractions function perfectly independent of a TCP connection. The application's core logic is now entirely transport-agnostic.
+The in-memory round-trip test passed for `write_frame` and `read_frame`, showing that those helpers can work without a TCP socket. It did not test a Bluetooth transport or an end-to-end offline transfer.
 
 ## 6. Review & Next Steps
 
