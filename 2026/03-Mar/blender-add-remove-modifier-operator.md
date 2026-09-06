@@ -112,4 +112,4 @@ Finally, to ensure the UI remained clean, I wrapped the `BKE_reportf` call in a 
   }
 ```
 
-After implementing these structural improvements, applying strict C++ style guide formatting (like fixing pointer spacing `wmOperator *op`), and removing redundant code comments, I updated the PR description. The refactored logic provided a much cleaner codebase and a vastly improved user experience.
+After implementing these structural improvements, applying strict C++ style guide formatting (like fixing pointer spacing `wmOperator *op`), and removing redundant code comments, I updated the PR description. The operator removes modifiers from the selected F-Curves and reports a count only when it changes a curve.

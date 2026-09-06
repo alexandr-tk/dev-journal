@@ -100,7 +100,7 @@ With this change, when the playhead hits the glare pixel, it sees that while Alp
 
 ## 6. Testing
 
-I compiled the build and recreated the specific bug conditions. The fix worked flawlessly: the glare survived the VSE blend.
+I compiled the build and recreated the specific bug conditions. In the recreated test scene, the glare survived the VSE blend with the fix.
 
 ## 7. Conclusion
 

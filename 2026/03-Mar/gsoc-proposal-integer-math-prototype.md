@@ -108,8 +108,8 @@ This guarantees that an operation like $5 / 2$ evaluates strictly to $2$ (intege
 
 ## 5. Visual Proof and Result
 
-To verify real-time GPU execution, the node was tested in the Viewport Compositor. The implementation was highly successful. By applying the custom `integer_math_modulo` logic to a smooth float gradient, the GPU correctly executed the integer truncations, resulting in perfectly stepped visual bands across the image.
+To verify real-time GPU execution, the node was tested in the Viewport Compositor. Applying the custom `integer_math_modulo` logic to a smooth float gradient produced stepped visual bands in the viewport test.
 
 <img src="assets/integer-math-prototype.png" alt="Screenshot of core developer Hans Goudey's comment on the issue tracker" width="600"/>
 
-This prototype successfully proves the architectural concept and sets a clear roadmap for porting the remaining function nodes during the project.
+This test demonstrates the modulo path in the prototype. The remaining function nodes and native type work are still part of the proposal.
